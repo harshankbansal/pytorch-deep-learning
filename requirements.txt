@@ -7,3 +7,5 @@ pandas
 tqdm
 ipykernel
 requests
+notebook
+ipywidgets

@@ -15,6 +15,8 @@ import zipfile
 
 from pathlib import Path
 
+from tqdm.auto import tqdm
+from math import floor
 import requests
 
 # Walk through an image classification directory and find out how many files (images)
@@ -301,3 +303,121 @@ def download_data(source: str, destination: str, remove_source: bool = True) -> 
             os.remove(data_path / target_file)
 
     return image_path
+
+
+class PytorchModelTranier:
+    def __init__(
+        self,
+        model: nn.Module,
+        name: str,
+        train_dataloader: torch.utils.data.DataLoader,
+        test_dataloader: torch.utils.data.DataLoader,
+        logits_to_pred,
+        loss_fn,
+        optimizer,
+    ):
+        self.name = name
+        self.model = model
+        self.loss_fn = loss_fn
+        self.optimizer = optimizer
+        self.logits_to_pred = logits_to_pred
+        self.train_dataloader = train_dataloader
+        self.test_dataloader = test_dataloader
+        self.train_accuracies = []
+        self.test_accuracies = []
+        self.train_losses = []
+        self.test_losses = []
+
+    def train(self, epochs: int):
+        device = next(self.model.parameters()).device
+        print_every_n_epochs = max(floor(epochs / 10), 1)
+        for epoch in tqdm(range(epochs)):
+            self.model.train()
+            train_loss, train_acc = 0, 0
+
+            for X_train, y_train in self.train_dataloader:
+                X_train, y_train = X_train.to(device), y_train.to(device)
+
+                # Forward
+                y_logits = self.model(X_train)
+                loss = self.loss_fn(y_logits, y_train)
+
+                # Backward
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+                # Metrics
+                train_loss += loss.item()
+                y_pred = self.logits_to_pred(
+                    y_logits
+                )  # torch.softmax(y_logits, dim=1).argmax(dim=1)
+                train_acc += accuracy_fn(y_train, y_pred)
+
+            # Average for epoch
+            train_loss /= len(self.train_dataloader)
+            train_acc /= len(self.train_dataloader)
+
+            self.train_losses.append(train_loss)
+            self.train_accuracies.append(train_acc)
+
+            # Evaluation loop (optional but recommended)
+            self.model.eval()
+            test_loss, test_acc = 0, 0
+            with torch.inference_mode():
+                for X_test, y_test in self.test_dataloader:
+                    X_test, y_test = X_test.to(device), y_test.to(device)
+                    test_logits = self.model(X_test)
+                    loss = self.loss_fn(test_logits, y_test)
+                    test_loss += loss.item()
+                    y_pred = self.logits_to_pred(test_logits)
+                    test_acc += accuracy_fn(y_test, y_pred)
+
+            test_loss /= len(self.test_dataloader)
+            test_acc /= len(self.test_dataloader)
+
+            self.test_losses.append(test_loss)
+            self.test_accuracies.append(test_acc)
+
+            if epoch % print_every_n_epochs == 0:
+                print(
+                    f"Epoch {epoch+1}/{epochs} "
+                    f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% "
+                    f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.2f}%"
+                )
+
+    def plot_losses(self):
+        plot_loss_curves(
+            {
+                "train_loss": self.train_losses,
+                "train_acc": self.train_accuracies,
+                "test_loss": self.test_losses,
+                "test_acc": self.test_accuracies,
+            }
+        )
+
+    def eval(self, with_dataloader: torch.utils.data.DataLoader = None):
+        loss, acc = 0, 0
+        model = self.model
+        loss_fn = self.loss_fn
+        data_loader = with_dataloader if with_dataloader else self.test_dataloader
+        with torch.inference_mode():
+            for X, y in data_loader:
+                # Make predictions with the model
+                y_pred = model(X)
+
+                # Accumulate the loss and accuracy values per batch
+                loss += loss_fn(y_pred, y)
+                acc += accuracy_fn(
+                    y_true=y, y_pred=y_pred.argmax(dim=1)
+                )  # For accuracy, need the prediction labels (logits -> pred_prob -> pred_labels)
+
+            # Scale loss and acc to find the average loss/acc per batch
+            loss /= len(data_loader)
+            acc /= len(data_loader)
+
+        return {
+            "model_name": self.name,  # only works when model was created with a class
+            "model_loss": loss.item(),
+            "model_acc": acc,
+        }
