@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 
 from tqdm.auto import tqdm
-from math import floor
+from math import ceil
 import requests
 
 # Walk through an image classification directory and find out how many files (images)
@@ -330,7 +330,7 @@ class PytorchModelTranier:
 
     def train(self, epochs: int):
         device = next(self.model.parameters()).device
-        print_every_n_epochs = max(floor(epochs / 10), 1)
+        print_every_n_epochs = max(ceil(epochs / 10), 1)
         for epoch in tqdm(range(epochs)):
             self.model.train()
             train_loss, train_acc = 0, 0
