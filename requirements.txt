@@ -9,3 +9,4 @@ ipykernel
 requests
 notebook
 ipywidgets
+torchinfo
