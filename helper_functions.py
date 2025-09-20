@@ -339,7 +339,7 @@ class PytorchModelTranier:
         if not optimizer:
             if not lr:
                 raise ValueError("Provide either Learnign Rate or Optimizer")
-            optimizer = (torch.optim.Adam(params=model.parameters(), lr=lr),)
+            optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
 
         self._train_accuracies = []
         self._test_accuracies = []
@@ -356,10 +356,10 @@ class PytorchModelTranier:
         self.test_dataloader = test_dataloader
         self.writer: SummaryWriter = None
 
-    def train(self, epochs: int):
+    def train(self, epochs: int = 1):
         device = self._device
         print_every_n_epochs = max(ceil(epochs / 10), 1)
-        self.__initialize_experiment_tracking()
+        self._initialize_experiment_tracking()
         for epoch in tqdm(range(epochs)):
             self._model.train()
             train_loss, train_acc = 0, 0
@@ -416,7 +416,7 @@ class PytorchModelTranier:
 
         self.writer.close()
 
-    def __initialize_experiment_tracking(self, settings: object = None):
+    def _initialize_experiment_tracking(self, settings: object = None):
         """
         experiment_tracking_settings = {
             "root_path": None,
@@ -441,17 +441,18 @@ class PytorchModelTranier:
         writer = settings.get("writer") or SummaryWriter(
             log_dir=os.path.join(root_path, project_name, self._name),
         )
+        input_data_for_model_summaries = next(iter(self.train_dataloader))[0]
         writer.add_text(
             "Model Summary",
             str(
                 summary(
                     model=self._model,
-                    batch_dim=self.train_dataloader.dataset[0][0].shape,
+                    batch_dim=input_data_for_model_summaries.shape,
                 )
             ),
         )
         writer.add_graph(
-            model=self._model, input_to_model=self.train_dataloader.dataset[0][0]
+            model=self._model, input_to_model=input_data_for_model_summaries
         )
         self.writer = writer
 
