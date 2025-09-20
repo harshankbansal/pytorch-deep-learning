@@ -438,18 +438,21 @@ class PytorchModelTranier:
 
         root_path = settings.get("root_path") or "runs"
         project_name = settings.get("project_name") or "DEFAULT_PROJECT"
+
         writer = settings.get("writer") or SummaryWriter(
             log_dir=os.path.join(root_path, project_name, self._name),
         )
+
         input_data_for_model_summaries = next(iter(self.train_dataloader))[0].to(
             self._device
         )
+
         writer.add_text(
             f"models/{self._name}/architecture",
             str(
                 summary(
                     model=self._model,
-                    batch_dim=input_data_for_model_summaries.shape,
+                    input_size=input_data_for_model_summaries.shape,
                 )
             ),
         )
