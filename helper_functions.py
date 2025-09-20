@@ -322,13 +322,13 @@ class PytorchModelTranier:
         experiment_tracking: object = {
             "root_path": None,
             "project_name": None,
-            "writter": None | SummaryWriter,
+            "writer": None | SummaryWriter,
         },
     ):
 
         # Initialize defaults
         if not device:
-            device = next(self._model.parameters()).device
+            device = next(model.parameters()).device
         if not logits_to_pred:
             logits_to_pred = lambda logits: nn.functional.softmax(logits, dim=1).argmax(
                 dim=1
@@ -354,6 +354,7 @@ class PytorchModelTranier:
         self.logits_to_pred = logits_to_pred
         self.train_dataloader = train_dataloader
         self.test_dataloader = test_dataloader
+        self.writer: SummaryWriter = None
 
     def train(self, epochs: int):
         device = self._device
@@ -413,23 +414,23 @@ class PytorchModelTranier:
                     f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.2f}%"
                 )
 
-        self.writter.close()
+        self.writer.close()
 
     def __initialize_experiment_tracking(self, settings: object = None):
         """
         experiment_tracking_settings = {
             "root_path": None,
             "project_name": None,
-            "writter": None | SummaryWriter,
+            "writer": None | SummaryWriter,
         }
         """
-        # If writter was closed then recreate new writter
-        if self.writter and self.writter.all_writers:
-            self.writter = SummaryWriter(self.writter.log_dir)
+        # If writer was closed then recreate new writer
+        if self.writer and self.writer.all_writers:
+            self.writer = SummaryWriter(self.writer.log_dir)
             return
 
-        # if writter is present but not closed do nothing
-        if self.writter:
+        # if writer is present but not closed do nothing
+        if self.writer:
             return
 
         if not settings:
@@ -437,21 +438,22 @@ class PytorchModelTranier:
 
         root_path = settings.get("root_path") or "runs"
         project_name = settings.get("project_name") or "DEFAULT_PROJECT"
-        writter = settings.get("writter") or SummaryWriter(
+        writer = settings.get("writer") or SummaryWriter(
             log_dir=os.path.join(root_path, project_name, self._name),
         )
-        writter.add_text("Model Name", self._name, 0)
-        writter.add_text(
+        writer.add_text(
             "Model Summary",
-            summary(
-                model=self._model, batch_dim=self.train_dataloader.dataset[0][0].shape
+            str(
+                summary(
+                    model=self._model,
+                    batch_dim=self.train_dataloader.dataset[0][0].shape,
+                )
             ),
-            0,
         )
-        writter.add_graph(
+        writer.add_graph(
             model=self._model, input_to_model=self.train_dataloader.dataset[0][0]
         )
-        self.writter = writter
+        self.writer = writer
 
     def plot_losses(self):
         plot_loss_curves(
@@ -492,15 +494,15 @@ class PytorchModelTranier:
     def __apend_train_metrics(self, epoch_loss, epoch_accuracy):
         self._train_losses.append(epoch_loss)
         self._train_accuracies.append(epoch_accuracy)
-        self.writter.add_scalar("Loss/train", epoch_loss, len(self._train_losses))
-        self.writter.add_scalar(
+        self.writer.add_scalar("Loss/train", epoch_loss, len(self._train_losses))
+        self.writer.add_scalar(
             "Accuracy/train", epoch_accuracy, len(self._train_accuracies)
         )
 
     def __apend_test_metrics(self, epoch_loss, epoch_accuracy):
         self._test_losses.append(epoch_loss)
         self._test_accuracies.append(epoch_accuracy)
-        self.writter.add_scalar("Loss/test", epoch_loss, len(self._test_losses))
-        self.writter.add_scalar(
+        self.writer.add_scalar("Loss/test", epoch_loss, len(self._test_losses))
+        self.writer.add_scalar(
             "Accuracy/test", epoch_accuracy, len(self._test_accuracies)
         )

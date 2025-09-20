@@ -10,3 +10,4 @@ requests
 notebook
 ipywidgets
 torchinfo
+tensorboard
