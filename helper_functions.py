@@ -441,7 +441,9 @@ class PytorchModelTranier:
         writer = settings.get("writer") or SummaryWriter(
             log_dir=os.path.join(root_path, project_name, self._name),
         )
-        input_data_for_model_summaries = next(iter(self.train_dataloader))[0]
+        input_data_for_model_summaries = next(iter(self.train_dataloader))[0].to(
+            self._device
+        )
         writer.add_text(
             f"models/{self._name}/architecture",
             str(
@@ -461,9 +463,11 @@ class PytorchModelTranier:
             f"models/{self._name}/optimizer",
             str(self._optimizer),
         )
+
         writer.add_graph(
             model=self._model, input_to_model=input_data_for_model_summaries
         )
+
         self.writer = writer
 
     def plot_losses(self):
