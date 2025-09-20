@@ -524,3 +524,15 @@ class PytorchModelTranier:
         self.writer.add_scalar(
             "Accuracy/test", epoch_accuracy, len(self._test_accuracies)
         )
+
+    def save_model(self, state_only=True):
+        save = self._model.state_dict() if state_only else self._model
+        path = Path(
+            f"models/{self._name}_state_dict.pth"
+            if state_only
+            else f"models/{self._name}.pth"
+        )
+        path.parent.mkdir(exist_ok=True)
+        torch.save(save, path)
+        print(f"Model saved at path: {str(path)}")
+        return path
