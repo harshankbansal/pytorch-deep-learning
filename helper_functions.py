@@ -446,6 +446,9 @@ class PytorchModelTranier:
         input_data_for_model_summaries = next(iter(self.train_dataloader))[0].to(
             self._device
         )
+        input_data_for_model_summaries = (input_data_for_model_summaries[0]).unsqueeze(
+            dim=0
+        )
 
         writer.add_text(
             f"models/{self._name}/architecture",
