@@ -22,6 +22,8 @@ import requests
 # Walk through an image classification directory and find out how many files (images)
 # are in each subdirectory.
 import os
+from torch.utils.tensorboard import SummaryWriter
+from torchinfo import summary
 
 
 def walk_through_dir(dir_path):
@@ -312,40 +314,66 @@ class PytorchModelTranier:
         name: str,
         train_dataloader: torch.utils.data.DataLoader,
         test_dataloader: torch.utils.data.DataLoader,
-        logits_to_pred,
-        loss_fn,
-        optimizer,
+        logits_to_pred=None,
+        loss_fn=None,
+        optimizer=None,
+        lr: float = None,
+        device=None,
+        experiment_tracking: object = {
+            "root_path": None,
+            "project_name": None,
+            "writter": None | SummaryWriter,
+        },
     ):
-        self.name = name
-        self.model = model
-        self.loss_fn = loss_fn
-        self.optimizer = optimizer
+
+        # Initialize defaults
+        if not device:
+            device = next(self._model.parameters()).device
+        if not logits_to_pred:
+            logits_to_pred = lambda logits: nn.functional.softmax(logits, dim=1).argmax(
+                dim=1
+            )
+        if not loss_fn:
+            loss_fn = nn.CrossEntropyLoss().to(device)
+
+        if not optimizer:
+            if not lr:
+                raise ValueError("Provide either Learnign Rate or Optimizer")
+            optimizer = (torch.optim.Adam(params=model.parameters(), lr=lr),)
+
+        self._train_accuracies = []
+        self._test_accuracies = []
+        self._train_losses = []
+        self._test_losses = []
+
+        self._device = device
+        self._name = name
+        self._model = model
+        self._loss_fn = loss_fn
+        self._optimizer = optimizer
         self.logits_to_pred = logits_to_pred
         self.train_dataloader = train_dataloader
         self.test_dataloader = test_dataloader
-        self.train_accuracies = []
-        self.test_accuracies = []
-        self.train_losses = []
-        self.test_losses = []
 
     def train(self, epochs: int):
-        device = next(self.model.parameters()).device
+        device = self._device
         print_every_n_epochs = max(ceil(epochs / 10), 1)
+        self.__initialize_experiment_tracking()
         for epoch in tqdm(range(epochs)):
-            self.model.train()
+            self._model.train()
             train_loss, train_acc = 0, 0
 
             for X_train, y_train in self.train_dataloader:
                 X_train, y_train = X_train.to(device), y_train.to(device)
 
                 # Forward
-                y_logits = self.model(X_train)
-                loss = self.loss_fn(y_logits, y_train)
+                y_logits = self._model(X_train)
+                loss = self._loss_fn(y_logits, y_train)
 
                 # Backward
-                self.optimizer.zero_grad()
+                self._optimizer.zero_grad()
                 loss.backward()
-                self.optimizer.step()
+                self._optimizer.step()
 
                 # Metrics
                 train_loss += loss.item()
@@ -355,20 +383,20 @@ class PytorchModelTranier:
                 train_acc += accuracy_fn(y_train, y_pred)
 
             # Average for epoch
+
             train_loss /= len(self.train_dataloader)
             train_acc /= len(self.train_dataloader)
 
-            self.train_losses.append(train_loss)
-            self.train_accuracies.append(train_acc)
+            self.__apend_train_metrics(train_loss, train_acc)
 
             # Evaluation loop (optional but recommended)
-            self.model.eval()
+            self._model.eval()
             test_loss, test_acc = 0, 0
             with torch.inference_mode():
                 for X_test, y_test in self.test_dataloader:
                     X_test, y_test = X_test.to(device), y_test.to(device)
-                    test_logits = self.model(X_test)
-                    loss = self.loss_fn(test_logits, y_test)
+                    test_logits = self._model(X_test)
+                    loss = self._loss_fn(test_logits, y_test)
                     test_loss += loss.item()
                     y_pred = self.logits_to_pred(test_logits)
                     test_acc += accuracy_fn(y_test, y_pred)
@@ -376,8 +404,7 @@ class PytorchModelTranier:
             test_loss /= len(self.test_dataloader)
             test_acc /= len(self.test_dataloader)
 
-            self.test_losses.append(test_loss)
-            self.test_accuracies.append(test_acc)
+            self.__apend_test_metrics(test_loss, test_acc)
 
             if epoch % print_every_n_epochs == 0:
                 print(
@@ -386,20 +413,60 @@ class PytorchModelTranier:
                     f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.2f}%"
                 )
 
+        self.writter.close()
+
+    def __initialize_experiment_tracking(self, settings: object = None):
+        """
+        experiment_tracking_settings = {
+            "root_path": None,
+            "project_name": None,
+            "writter": None | SummaryWriter,
+        }
+        """
+        # If writter was closed then recreate new writter
+        if self.writter and self.writter.all_writers:
+            self.writter = SummaryWriter(self.writter.log_dir)
+            return
+
+        # if writter is present but not closed do nothing
+        if self.writter:
+            return
+
+        if not settings:
+            settings = {}
+
+        root_path = settings.get("root_path") or "runs"
+        project_name = settings.get("project_name") or "DEFAULT_PROJECT"
+        writter = settings.get("writter") or SummaryWriter(
+            log_dir=os.path.join(root_path, project_name, self._name),
+        )
+        writter.add_text("Model Name", self._name, 0)
+        writter.add_text(
+            "Model Summary",
+            summary(
+                model=self._model, batch_dim=self.train_dataloader.dataset[0][0].shape
+            ),
+            0,
+        )
+        writter.add_graph(
+            model=self._model, input_to_model=self.train_dataloader.dataset[0][0]
+        )
+        self.writter = writter
+
     def plot_losses(self):
         plot_loss_curves(
             {
-                "train_loss": self.train_losses,
-                "train_acc": self.train_accuracies,
-                "test_loss": self.test_losses,
-                "test_acc": self.test_accuracies,
+                "train_loss": self._train_losses,
+                "train_acc": self._train_accuracies,
+                "test_loss": self._test_losses,
+                "test_acc": self._test_accuracies,
             }
         )
 
     def eval(self, with_dataloader: torch.utils.data.DataLoader = None):
         loss, acc = 0, 0
-        model = self.model
-        loss_fn = self.loss_fn
+        model = self._model
+        loss_fn = self._loss_fn
         data_loader = with_dataloader if with_dataloader else self.test_dataloader
         with torch.inference_mode():
             for X, y in data_loader:
@@ -417,7 +484,23 @@ class PytorchModelTranier:
             acc /= len(data_loader)
 
         return {
-            "model_name": self.name,  # only works when model was created with a class
+            "model_name": self._name,  # only works when model was created with a class
             "model_loss": loss.item(),
             "model_acc": acc,
         }
+
+    def __apend_train_metrics(self, epoch_loss, epoch_accuracy):
+        self._train_losses.append(epoch_loss)
+        self._train_accuracies.append(epoch_accuracy)
+        self.writter.add_scalar("Loss/train", epoch_loss, len(self._train_losses))
+        self.writter.add_scalar(
+            "Accuracy/train", epoch_accuracy, len(self._train_accuracies)
+        )
+
+    def __apend_test_metrics(self, epoch_loss, epoch_accuracy):
+        self._test_losses.append(epoch_loss)
+        self._test_accuracies.append(epoch_accuracy)
+        self.writter.add_scalar("Loss/test", epoch_loss, len(self._test_losses))
+        self.writter.add_scalar(
+            "Accuracy/test", epoch_accuracy, len(self._test_accuracies)
+        )
