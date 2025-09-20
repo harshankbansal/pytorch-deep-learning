@@ -443,13 +443,23 @@ class PytorchModelTranier:
         )
         input_data_for_model_summaries = next(iter(self.train_dataloader))[0]
         writer.add_text(
-            "Model Summary",
+            f"models/{self._name}/architecture",
             str(
                 summary(
                     model=self._model,
                     batch_dim=input_data_for_model_summaries.shape,
                 )
             ),
+        )
+
+        writer.add_text(
+            f"models/{self._name}/loss_fn",
+            str(self._loss_fn),
+        )
+
+        writer.add_text(
+            f"models/{self._name}/optimizer",
+            str(self._optimizer),
         )
         writer.add_graph(
             model=self._model, input_to_model=input_data_for_model_summaries
